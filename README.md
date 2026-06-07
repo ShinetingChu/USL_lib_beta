@@ -19,11 +19,12 @@ Data analysis toolbox for **ultra-stable laser (USL) systems**. Provides functio
 
 | 模块 | 说明 | 主要函数 |
 |------|------|----------|
-| `ultra_stable_laser._io` | 数据读取 | `KK_data_read`, `KK_data_read_single`, `keysight_data_read`, `keysight_six_data_read`, `sim_keysight_data_read`, `labview_data_read`, `data_read_SR780_dbm`, `oscilloscope_data_read`, `pn_plot_to_psd` |
+| `ultra_stable_laser._io` | 数据读取 (pandas加速) | `KK_data_read`, `KK_data_read_single`, `keysight_data_read`, `keysight_six_data_read`, `sim_keysight_data_read`, `labview_data_read`, `data_read_SR780_dbm`, `oscilloscope_data_read`, `pn_plot_to_psd`, `datetime_to_epoch` |
 | `ultra_stable_laser._allan` | Allan偏差计算 | `allan_adev`, `allan_oadev`, `allan_mdev`, `allan_hdev`, `allan_psd`, `three_cornered_hat`, `way_one_plus_and_minus`, `solve_equ` |
 | `ultra_stable_laser._psd` | 功率谱密度 | `psd_welch`, `psd_int_allan`, `plot_csd`, `calc_psd_single` |
 | `ultra_stable_laser._drift` | 漂移补偿 | `move_long_drift` |
 | `ultra_stable_laser._utils` | 工具函数 | `sin_func`, `line_fit`, `calculate_slope` |
+| `ultra_stable_laser` (全局) | 配置 | `configure_plotting` |
 | `ultra_stable_laser._transfer` | 温度传递函数 | `transfer_temp` |
 | `ultra_stable_laser._plot` | 可视化 | `plot_temp_stability`, `K_K_plot`, `K_K_single_plot`, `K_K_plot_path1_path2`, `freq_disc_slope`, `SR780_data_concatenate`, `plot_pico_USB_err`, `plot_keysight_USB_power`, `plot_keysight_six_half_USB_power`, `plot_sim_keysight_USB_power` |
 
@@ -129,10 +130,13 @@ import ultra_stable_laser as usl
 
 ## 快速使用示例 / Quick Start
 
-以下展示 K+K 频率计数器数据的完整处理流程：读取数据 → 去除漂移 → 计算Allan偏差 → 绘制稳定度三图。
+以下展示 K+K 频率计数器数据的完整处理流程：读取数据 → 去除漂移 → 计算Allan偏差 → 功率谱密度分析。
 
 ```python
 import ultra_stable_laser as usl
+
+# 0. 可选：自定义绘图参数
+usl.configure_plotting()
 
 # 1. 读取 K+K 频率计数器单通道数据
 fs = 100  # 采样率 100 Hz
@@ -143,14 +147,42 @@ t, t_data, f = usl.KK_data_read_single(path, fs, begin=1, end=100000, channel='C
 t_d, f_d, drift_rate = usl.move_long_drift(t.tolist(), f.tolist(), switch=1)
 print(f"漂移率: {drift_rate:.2e} Hz/s")
 
-# 3. 计算Allan偏差 (ADEV)
-taus, adevs, errors = usl.allan_adev(f_d.tolist(), fs)
+# 3. 计算Allan偏差 (ADEV) 和 修正Allan偏差 (MDEV)
+taus_adev, adevs, errors = usl.allan_adev(f_d.tolist(), fs)
+taus_mdev, mdevs, m_errors = usl.allan_mdev(f_d.tolist(), fs)
 
-# 4. 计算功率谱密度 (PSD)
+# 4. 计算功率谱密度 (PSD) 并积分至Allan方差
 f_psd, Pxx = usl.psd_welch(t_d.tolist(), f_d.tolist(), fs)
+tau_psd, sigma_psd = usl.psd_int_allan(f_psd.tolist(), Pxx.tolist())
 
-# 5. 一键绘图（时域、PSD、ADEV、MDEV）
+# 5. 一键绘图（时域、PSD、ADEV、MDEV 四图）
 result = usl.K_K_plot(path, fs, CH='CH1', label1='Sample', start=1, end=100000)
+# result = (freq, psd, taus, adevs, errors) 可直接用于后续分析
+
+# 6. 读取 Keysight 频率计数器数据
+key_t, key_f = usl.keysight_data_read("keysight_data.txt", fs=100)
+
+# 7. 温度数据分析
+usl.plot_temp_stability("labview_temp.txt", fs=1, label="Chamber",
+                        switch=1, plot_transfer=True)
+```
+
+### 三角帽法分离三通道噪声
+
+```python
+import ultra_stable_laser as usl
+
+# 假设有三通道拍频数据 f_12, f_23, f_13 (已去漂移)
+# 计算各通道间Allan偏差
+taus, adev_12, _ = usl.allan_adev(f_12, fs)
+_,   adev_23, _ = usl.allan_adev(f_23, fs)
+_,   adev_13, _ = usl.allan_adev(f_13, fs)
+
+# 加减法分离噪声
+taus, U1, U2, U3 = usl.way_one_plus_and_minus(taus, adev_12, adev_23, adev_13)
+
+# 三角帽法（协方差法）分离本底噪声
+u1, u2, u3 = usl.three_cornered_hat(f_12, f_13, fs)
 ```
 
 更多示例请参考各函数文档字符串。

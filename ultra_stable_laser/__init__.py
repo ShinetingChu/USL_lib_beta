@@ -92,6 +92,7 @@ from ._io import (
     data_read_SR780_dbm,
     oscilloscope_data_read,
     pn_plot_to_psd,
+    datetime_to_epoch,
 )
 
 from ._allan import (
@@ -149,7 +150,7 @@ __all__ = [
     'keysight_data_read', 'keysight_six_data_read',
     'sim_keysight_data_read', 'labview_data_read',
     'data_read_SR780_dbm', 'oscilloscope_data_read',
-    'pn_plot_to_psd',
+    'pn_plot_to_psd', 'datetime_to_epoch',
     # Allan
     'allan_adev', 'allan_oadev', 'allan_mdev', 'allan_hdev',
     'allan_psd', 'three_cornered_hat', 'way_one_plus_and_minus',

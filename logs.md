@@ -25,11 +25,36 @@
 3. **类型注解**: 所有函数添加完整类型注解 (type hints)
 4. **文档字符串**: 所有函数添加详细 docstring（中英文参数说明）
 5. **性能优化**: `_io.py` 中全部数据读取函数从逐行 `for` 循环改写为 `pandas.read_csv()` 向量化读取
-6. **向后兼容**: `__init__.py` 导入所有子模块函数，保持原有 `import USL_lib_beta as usl` 用法不变
-7. **导入优化**: 各子模块只导入所需依赖，避免全局导入开销
+6. **重复代码合并**:
+   - `plot_data_labview` + `temp_read_psd_allan_2` → `plot_temp_stability()`，保留向后兼容包装
+   - `K_K_plot` / `K_K_plot_path1_path2` 通道分支参数化 (`_CHANNEL_CONFIGS` + `_plot_kk_core`)，大幅精简重复代码
+7. **死代码清理**: 删除被注释的 `plt.savefig`、`plt.ylim`、`plt.xlim` 等代码块
+8. **无用导入清理**: 删除 `from cProfile import label`、重复的 `numpy` / `pyplot` / `time` / `datetime` 导入
+9. **全局配置优化**: rcParams 封装到 `configure_plotting()` 函数，支持 `scienceplots` 样式 fallback
+10. **向后兼容**: `__init__.py` 导入所有子模块函数，保持原有 `import ultra_stable_laser as usl` 用法不变
 
-#### 模块初始化优化
+#### 新增公共函数
 
-- `__init__.py` 不再直接执行大量计算和配置代码
-- 绘图配置移至 `configure_plotting()` 函数，可按需调用
-- 全局变量 (`cmap0`, `col_width`, `fs`) 从模块导出列表移除，减少启动开销
+- `configure_plotting()` — 配置 matplotlib 绘图参数
+- `datetime_to_epoch()` — 将 datetime 对象转换为 Unix 时间戳
+- `plot_temp_stability()` — 合并后的温度稳定性绘图函数
+- `calc_psd_single()` — FFT 法单边 PSD 计算（原 `PSD` 函数，保留别名）
+
+#### 数据读取性能提升 (pandas 改造)
+
+| 函数 | 原实现 | 新实现 | 预期性能 |
+|------|--------|--------|----------|
+| `KK_data_read` | 逐行 `readlines` + `strptime` | `pandas.read_csv` + 列索引 | 10x-50x (大文件) |
+| `KK_data_read_single` | 逐行 + 条件分支 | `pandas.read_csv` + 通道映射 | 10x-50x |
+| `keysight_data_read` | 逐行 + `for i in range` | `pandas.read_csv` | 5x-20x |
+| `keysight_six_data_read` | 逐行 + `split('\t')` | `pandas.read_csv(sep='\t')` | 5x-20x |
+| `sim_keysight_data_read` | 逐行 + `split(',')` | `pandas.read_csv` | 5x-20x |
+| `labview_data_read` | 逐行 `strptime` | `pandas.to_datetime` 批量 | 10x-50x |
+| `data_read_SR780_dbm` | 逐行从第4行起 | `pandas.read_csv(skiprows=3)` | 5x-20x |
+| `oscilloscope_data_read` | 逐行 + range 限制 | `pandas.read_csv(nrows=5E6)` | 5x-20x |
+| `pn_plot_to_psd` | 逐行2列 + 手动转换 | `pandas.read_csv` + 向量化 | 5x-20x |
+
+#### 绘图函数 pandas 改造
+
+- `plot_temp_stability`: 内联文件读取改用 `pd.read_csv` + `pd.to_datetime`
+- `plot_pico_USB_err`: 内联文件读取改用 `pd.read_csv(skiprows=3)`

@@ -3,7 +3,6 @@
 
 """画图函数模块 - 温度、频率稳定性、PSD、Allan偏差等数据可视化。"""
 
-from datetime import datetime
 from typing import List, Tuple, Optional, Dict, Any
 import numpy as np
 import pandas as pd
@@ -19,7 +18,7 @@ from ._io import (
     keysight_data_read,
     sim_keysight_data_read,
     labview_data_read,
-    _datetime_to_epoch,
+    datetime_to_epoch,
 )
 from ._drift import move_long_drift
 from ._psd import psd_welch
@@ -65,26 +64,16 @@ def plot_temp_stability(
         plot_transfer: 是否绘制温度传递函数图（图4）
         scale_by_nu0: 是否除以 nu_0^2 转换为分数频率
     """
-    # 读取数据
-    t_a: List[float] = []
-    t_2: List[datetime] = []
-    f_1_d_raw: List[float] = []
-    with open(path, 'r') as file:
-        next(file)
-        userlines = file.readlines()
-    for line in userlines:
-        datetime_obj = datetime.strptime(
-            line.split('\t')[0], "%Y-%m-%d %H:%M:%S.%f"
-        )
-        t_a.append(
-            time.mktime(datetime_obj.timetuple()) + datetime_obj.microsecond / 1E6
-        )
-        t_2.append(datetime_obj)
-        f_1_d_raw.append(float(line.split('\t')[i]))
+    # 使用pandas快速读取labview格式数据（制表符分隔，第一列为时间戳）
+    df = pd.read_csv(path, sep='\t', header=0)
+    df = df.iloc[start:end] if end > start else df
 
-    t_a = t_a[start:end]
-    t_2 = t_2[start:end]
-    f_1_d_raw = f_1_d_raw[start:end]
+    # 解析时间戳
+    time_col = df.columns[0]
+    t_data = pd.to_datetime(df.iloc[:, 0], format="%Y-%m-%d %H:%M:%S.%f")
+    t_a = [datetime_to_epoch(dt.to_pydatetime()) for dt in t_data]
+    t_2 = [dt.to_pydatetime() for dt in t_data]
+    f_1_d_raw = df.iloc[:, i].astype(float).tolist()
 
     # 长漂补偿
     if switch >= 1:
@@ -308,13 +297,10 @@ def plot_pico_USB_err(
     Returns:
         (t_a, f_1_d) 时间和补偿后的数据
     """
-    t: List[float] = []
-    f: List[float] = []
-    with open(path, 'r') as file:
-        userlines = file.readlines()
-    for line in userlines[3:-1]:
-        t.append(float(line.split(',')[0]))
-        f.append(float(line.split(',')[1]))
+    # 使用pandas快速读取CSV数据（跳过前3行，忽略最后1行，逗号分隔）
+    df = pd.read_csv(path, sep=',', header=None, skiprows=3, dtype=float)
+    t = df.iloc[:-1, 0].tolist()  # 忽略最后一行
+    f = df.iloc[:-1, 1].tolist()
 
     t_a, f_1_d, d_13 = move_long_drift(t[start:end], f[start:end], switch)
     print(d_13)
