@@ -1,24 +1,35 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel", "numpy", "matplotlib", "pandas", "scipy", "datetime", "allantools>=2024.4", "pathlib", "sympy"]
+requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "USL_lib_beta"    # 包名（PyPI 唯一标识）
-version = "2025.06.02"             # 版本号（每次更新需递增）
-authors = [{ name = "zxq985", email = "zxq985160104@163.com" }]
-description = "Some useful functions for USL(ultra-stable laser)"  # 简短描述
+name = "ultra-stable-laser"
+version = "0.1.0"
+authors = [{ name = "zxq", email = "zxq985160104@163.com" }]
+description = "超稳激光系统数据分析工具箱 - Data analysis toolbox for ultra-stable laser systems"
 readme = "README.md"
 license = { file = "LICENSE" }
-requires-python = ">=3.8"     # 支持的 Python 版本
-classifiers = [               # 分类标签（可选）
+requires-python = ">=3.8"
+classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Intended Audience :: Science/Research",
+]
+
+dependencies = [
+    "numpy",
+    "scipy",
+    "matplotlib",
+    "pandas",
+    "allantools>=2024.4",
+    "sympy",
 ]
 
 [project.urls]
 "Repository" = "https://github.com/ShinetingChu/USL_lib_beta"
-"Pypi" = "https://pypi.org/project/USL-lib-beta/"
+"PyPI" = "https://pypi.org/project/ultra-stable-laser/"
 
-
-[tool.setuptools.packages]
-find = {}  # 自动查找包
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["ultra_stable_laser*"]
