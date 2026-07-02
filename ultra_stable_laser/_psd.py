@@ -26,7 +26,7 @@ def psd_welch(
     Returns:
         (Pxx, nu) 功率谱密度和对应频率
     """
-    Pxx, nu = signal.welch(f_x, fs, window='hann', scaling='density',
+    nu, Pxx = signal.welch(f_x, fs, window='hann', scaling='density',
                            nperseg=0.5 * nfft_0, nfft=nfft_0)
     return Pxx, nu  # unit: (f_x's unit)^2/Hz, Hz
 
@@ -49,9 +49,10 @@ def psd_int_allan(
     df = nu[1] - nu[0]
     t_x = 1  # @1s
     sigma_f: List[float] = []
-    for i in range(2, len(nu)):
-        a_nu = np.array([nu[1:i]])  # unit: Hz
-        a_S = np.array([(Pxx[1:i])])  # unit: (Pxx's unit)^2/Hz
+    m=10
+    for i in range(2, int(len(nu)/m)):
+        a_nu = np.array([nu[1:i*m]])  # unit: Hz
+        a_S = np.array([(Pxx[1:i*m])])  # unit: (Pxx's unit)^2/Hz
         sigma_f.append(2 * df * np.sum(
             np.sin(np.pi * t_x * a_nu) ** 4 / (np.pi * t_x * a_nu) ** 2 * a_S
         ))

@@ -3,7 +3,7 @@
 
 """画图函数模块 - 温度、频率稳定性、PSD、Allan偏差等数据可视化。"""
 
-from typing import List, Tuple, Optional, Dict, Any
+from typing import List, Tuple, Optional, Dict, Any, Callable
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -18,6 +18,7 @@ from ._io import (
     keysight_data_read,
     sim_keysight_data_read,
     labview_data_read,
+    DAQ970_data_read,
     datetime_to_epoch,
 )
 from ._drift import move_long_drift
@@ -315,52 +316,34 @@ def plot_pico_USB_err(
 
     return t_a, f_1_d
 
-
-def plot_keysight_USB_power(
-    path: str,
-    switch: int,
-    label: str,
+def _psd_allan_from_data(
+    t_a: List[float],
+    f_1_d: List[float],
     fs: float,
     k_p: float,
     title: str,
-    start: int,
-    end: int,
-    factor: float = 1,
+    label: str,
     nfft_n: int = 1024,
-    switch2: int = 1,
-    width: float = 100,
-) -> Tuple[List[float], np.ndarray, np.ndarray, np.ndarray]:
-    """绘制Keysight频率计数器USB采集的拍频稳定性数据。
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """从时间序列数据计算并绘制PSD和Allan偏差。
 
     Args:
-        path: 数据文件路径
-        switch: 长漂补偿开关
-        label: 图例标签
+        t_a: 时间序列
+        f_1_d: 数据序列
         fs: 采样率 (Hz)
         k_p: 比例因子
         title: 图表标题
-        start: 起始数据点
-        end: 结束数据点
-        factor: 缩放因子
+        label: 图例标签
         nfft_n: FFT点数
-        switch2: 离群值过滤开关
-        width: 离群过滤带宽
 
     Returns:
-        (t_a, f_detrend, f_psd, Pxx_scaled)
+        (taus, adevs, f_psd, Pxx)
     """
-    t, f = keysight_data_read(path, fs)
-    t_a_m, f_1_d_m, d_13 = move_long_drift(
-        t[start:end], f[start:end], switch
-    )
-
-    t_a, f_1_d = _filter_outliers(t_a_m, f_1_d_m, switch2, width)
-
     plt.figure(1)
     plt.title('Frequency changes with time (' + title + ')')
     plt.xlabel('Time (s)')
     plt.ylabel('Beat frequency (Hz)')
-    plt.plot(np.array(t_a), np.array(f_1_d) - f_1_d[0], label=label)
+    plt.plot(np.array(t_a)-t_a[0], (np.array(f_1_d) - f_1_d[0])*k_p, label=label)
     plt.grid(which='both', linestyle='dashed')
     plt.legend(loc=(1, 0))
 
@@ -393,9 +376,144 @@ def plot_keysight_USB_power(
     plt.title('Stability (' + title + ')')
     plt.grid(which='both', linestyle='dashed')
     plt.legend(loc=(1, 0))
+    
+    return f_1_arr, np.array(Pxx_1) * k_p ** 2,taus_1, np.array(adevs_1) * k_p, np.array(error_1) * k_p
 
-    return t_a, np.array(f_1_d) - f_1_d[0], f_1_arr, np.array(Pxx_1) * k_p ** 2
+def plot_keysight_power(
+    path: str,
+    switch: int,
+    label: str,
+    fs: float,
+    k_p: float,
+    title: str,
+    start: int,
+    end: int,
+    nfft_n: int = 1024,
+    reader: Optional[Callable[[str, float], Tuple[List[float], List[float]]]] = None,
+    switch2: int = 1,
+    width: float = 100,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """统一的Keysight数据绘图函数。三个原函数仅在读取数据时不同，合并为一个通用函数。
 
+    Args:
+        path: 数据文件路径
+        switch: 长漂补偿开关
+        label: 图例标签
+        fs: 采样率 (Hz)
+        k_p: 比例因子
+        title: 图表标题
+        start: 起始数据点
+        end: 结束数据点
+        nfft_n: FFT点数
+        reader: 可选的数据读取函数，默认为 keysight_data_read，可传入 sim_keysight_data_read
+        switch2: 离群值过滤开关
+        width: 离群过滤带宽
+
+    Returns:
+        (t_a_rel, f_detrend, f_psd, Pxx_scaled, taus, adevs, errors)
+    """
+    if reader is None:
+        reader = keysight_data_read
+
+    t, f = reader(path, fs)
+    t_a_m, f_1_d_m, d_13 = move_long_drift(
+        t[start:end], f[start:end], switch
+    )
+
+    t_a, f_1_d = _filter_outliers(t_a_m, f_1_d_m, switch2, width)
+
+    f_1_arr, Pxx_1, taus_1, adevs_1, error_1 = _psd_allan_from_data(
+        t_a, f_1_d, fs, k_p, title, label, nfft_n
+    )
+
+    return np.array(t_a) - t_a[0], np.array(f_1_d) - f_1_d[0], f_1_arr, Pxx_1, taus_1, adevs_1, error_1
+
+
+def plot_keysight_USB_power(
+    path: str,
+    switch: int,
+    label: str,
+    fs: float,
+    k_p: float,
+    title: str,
+    start: int,
+    end: int,
+    nfft_n: int = 1024,
+    switch2: int = 1,
+    width: float = 100,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """向后兼容的包装，调用统一函数（使用 keysight_data_read）。"""
+    return plot_keysight_power(
+        path, switch, label, fs, k_p, title, start, end,
+        nfft_n=nfft_n, reader=keysight_data_read, switch2=switch2, width=width
+    )
+
+
+def plot_keysight_six_half_USB_power(
+    path: str,
+    switch: int,
+    label: str,
+    fs: float,
+    k_p: float,
+    title: str,
+    start: int,
+    end: int,
+    nfft_n: int = 1024,
+    switch2: int = 1,
+    width: float = 100,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """向后兼容的包装，六位半万用表USB读取（当前使用 keysight_data_read）。"""
+    return plot_keysight_power(
+        path, switch, label, fs, k_p, title, start, end,
+        nfft_n=nfft_n, reader=keysight_data_read, switch2=switch2, width=width
+    )
+
+
+def plot_sim_keysight_USB_power(
+    path: str,
+    switch: int,
+    label: str = '123',
+    fs: float = 1,
+    k_p: float = 1,
+    title: str = '123',
+    start: int = 0,
+    end: int = -1,
+    nfft_n: int = 1024,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """向后兼容的包装，调用模拟数据读取的统一函数。"""
+    return plot_keysight_power(
+        path, switch, label, fs, k_p, title, start, end,
+        nfft_n=nfft_n, reader=sim_keysight_data_read
+    )
+
+def plot_DAQ970_power(
+    path: str,
+    channel:int = 2,
+    fs: float = 1,
+    k_p: float = 1,
+    title: str = '123',
+    start: int = 0,
+    end: int = -1,
+    nfft_n: int = 1024,
+    switch: int = 0,
+    switch2: int = 0,
+    width: float = 100,
+    label: str = '123',
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """向后兼容的包装，调用模拟数据读取的统一函数。"""
+    t, f = DAQ970_data_read(path, fs, channel=channel)
+
+    t_a_m, f_1_d_m, d_13 = move_long_drift(
+        t[start:end], f[start:end], switch
+    )
+
+    t_a, f_1_d = _filter_outliers(t_a_m, f_1_d_m, switch2, width)
+
+    f_1_arr, Pxx_1, taus_1, adevs_1, error_1 = _psd_allan_from_data(
+        t_a, f_1_d, fs, k_p, title, label, nfft_n
+    )
+
+    return np.array(t_a) - t_a[0], np.array(f_1_d) - f_1_d[0], f_1_arr, Pxx_1, taus_1, adevs_1, error_1
 
 def _filter_outliers(
     t_a_m: List[float],
@@ -417,183 +535,6 @@ def _filter_outliers(
         f_1_d = f_1_d_m
     return t_a, f_1_d
 
-
-def plot_keysight_six_half_USB_power(
-    path: str,
-    switch: int,
-    label: str,
-    fs: float,
-    k_p: float,
-    title: str,
-    start: int,
-    end: int,
-    factor: float = 1,
-    nfft_n: int = 1024,
-    switch2: int = 1,
-    width: float = 100,
-) -> Tuple[np.ndarray, np.ndarray]:
-    """绘制Keysight六位半万用表USB采集的电压稳定性数据。
-
-    Args:
-        path: 数据文件路径
-        switch: 长漂补偿开关
-        label: 图例标签
-        fs: 采样率 (Hz)
-        k_p: 比例因子
-        title: 图表标题
-        start: 起始数据点
-        end: 结束数据点
-        factor: 缩放因子
-        nfft_n: FFT点数
-        switch2: 离群值过滤开关
-        width: 离群过滤带宽
-
-    Returns:
-        (f_psd, Pxx_scaled)
-    """
-    t, f = keysight_data_read(path, fs)
-    t_a_m, f_1_d_m, d_13 = move_long_drift(
-        t[start:end], f[start:end], switch
-    )
-
-    t_a, f_1_d = _filter_outliers(t_a_m, f_1_d_m, switch2, width)
-
-    plt.figure(1)
-    plt.title('Frequency changes with time (' + title + ')')
-    plt.xlabel('Time (s)')
-    plt.ylabel('Voltage (V)')
-    plt.plot(
-        np.array(t_a) - t_a[0],
-        (np.array(f_1_d) - f_1_d[0]) * factor,
-        label=label
-    )
-    plt.grid(which='both', linestyle='dashed')
-
-    taus_1, adevs_1, error_1 = allan_adev(t_a, f_1_d)
-    f_1_arr, Pxx_1 = signal.welch(
-        np.array(f_1_d) - np.mean(f_1_d), fs,
-        window='hann', nperseg=nfft_n, nfft=nfft_n
-    )
-
-    plt.figure(2)
-    plt.plot(f_1_arr, np.array(Pxx_1) * k_p ** 2, label=label)
-    plt.xscale('log')
-    plt.yscale('log')
-    plt.title('Stability (' + title + ')')
-    plt.xlabel("Voltage (V)")
-    plt.ylabel("Power Spectral Density($V^2/Hz$)")
-    plt.xlim([0.001, fs / 2])
-    plt.grid(which='both', linestyle='dashed')
-
-    plt.figure(3)
-    plt.errorbar(
-        taus_1, np.array(adevs_1) * k_p, np.array(error_1) * k_p,
-        fmt='o--', ecolor='r', elinewidth=2, capsize=4, label=label
-    )
-    plt.yscale('log')
-    plt.xscale('log')
-    plt.xlabel('Averaging Time(s)')
-    plt.ylabel('Allan Deviation $\\sigma_y$')
-    plt.title('Stability (' + title + ')')
-    plt.grid(which='both', linestyle='dashed')
-    print(adevs_1[3] * k_p)
-
-    return f_1_arr, np.array(Pxx_1) * k_p ** 2
-
-
-def plot_sim_keysight_USB_power(
-    path: str,
-    switch: int,
-    label1: str = '123',
-    fs: float = 1,
-    k_p: float = 1,
-    title: str = '123',
-    start: int = 0,
-    end: int = -1,
-    nfft_n: int = 1024,
-) -> np.ndarray:
-    """绘制模拟Keysight USB采集的数据稳定性。
-
-    Args:
-        path: 数据文件路径
-        switch: 长漂补偿开关
-        label1: 图例标签
-        fs: 采样率 (Hz)
-        k_p: 比例因子
-        title: 图表标题
-        start: 起始数据点
-        end: 结束数据点
-        nfft_n: FFT点数
-
-    Returns:
-        adevs_a allantools计算的Allan偏差
-    """
-    t, f = sim_keysight_data_read(path, fs)
-    t_a, f_1_d, d_13 = move_long_drift(
-        t[start:end], f[start:end], switch
-    )
-
-    plt.figure(0)
-    plt.title('Light intensity stability (' + title + ')')
-    plt.xlabel('Time (s)')
-    plt.ylabel('Voltage (V)')
-    plt.plot(
-        np.array(t_a) - t_a[0],
-        np.array(f_1_d),
-        label=label1
-    )
-    plt.grid(which='both', linestyle='dashed')
-    plt.legend(loc=(1, 0))
-
-    plt.figure(1)
-    plt.title('Light intensity stability (' + title + ')')
-    plt.xlabel('Time (s)')
-    plt.ylabel('$\\Delta f/f$')
-    plt.plot(
-        np.array(t_a) - t_a[0],
-        np.array(f_1_d) * k_p,
-        label=label1
-    )
-    plt.grid(which='both', linestyle='dashed')
-    plt.legend(loc=(1, 0))
-
-    taus_1, adevs_1, error_1 = allan_adev(t_a, f_1_d)
-    f_1_arr, Pxx_1 = signal.welch(
-        np.array(f_1_d) - np.mean(f_1_d), fs,
-        window='hann', nperseg=nfft_n, nfft=nfft_n
-    )
-    (taus_a, adevs_a, errors_1, ns_1) = alt.adev(
-        f_1_d, rate=fs, data_type="freq", taus=1
-    )
-
-    plt.figure(2)
-    plt.plot(f_1_arr, np.array(Pxx_1) * k_p ** 2, label=label1)
-    plt.xscale('log')
-    plt.yscale('log')
-    plt.title('Stability (' + title + ')')
-    plt.xlabel("Frequency(Hz)")
-    plt.ylabel("Power Spectral Density($V^2/Hz$)")
-    plt.xlim([0.01, 50])
-    plt.grid(which='both', linestyle='dashed')
-    plt.legend(loc=(1, 0))
-
-    plt.figure(3)
-    plt.errorbar(
-        taus_1, np.array(adevs_1) * k_p, np.array(error_1) * k_p,
-        fmt='o--', ecolor='r', elinewidth=2, capsize=4, label=label1
-    )
-    plt.yscale('log')
-    plt.xscale('log')
-    plt.xlabel('Averaging Time(s)')
-    plt.ylabel('Allan Deviation $\\sigma_y$')
-    plt.title('stability (' + title + ')')
-    plt.xlim([1E-2, 1E2])
-    plt.grid(which='both', linestyle='dashed')
-    plt.legend(loc=(1, 0))
-
-    return adevs_a
-
-
 # ────────────────────────────────────────────────────────────
 # K+K频率计数器绘图 (单段 / 多段 / 两文件合并)
 # ────────────────────────────────────────────────────────────
@@ -601,9 +542,9 @@ def plot_sim_keysight_USB_power(
 # 通道配置：差异化标题、x轴范围、拟合线系数、图例位置
 _CHANNEL_CONFIGS: Dict[str, Dict[str, Any]] = {
     'CH1': {
-        'title1': 'Beat Frequency of U3 and Si1',
-        'title2': 'Allan Deviation of U3 and Si1',
-        'title3': 'Modified Allan Deviation of U3 and Si1',
+        'title1': 'Beat Frequency of Si3 and DX1',
+        'title2': 'Allan Deviation of Si3 and DX1',
+        'title3': 'Modified Allan Deviation of Si3 and DX1',
         'xlim_psd': [1E-3, None],
         'fit_line_coeff': None,
         'legend_loc_psd': (1, 0),
@@ -613,9 +554,9 @@ _CHANNEL_CONFIGS: Dict[str, Dict[str, Any]] = {
         'plot_time': True,
     },
     'CH1-2': {
-        'title1': 'Beat Frequency of U3 and Si1',
-        'title2': 'Allan Deviation of U3 and Si1',
-        'title3': 'Modified Allan Deviation of U3 and Si1',
+        'title1': 'Beat Frequency of Si3 and DX1',
+        'title2': 'Allan Deviation of Si3 and DX1',
+        'title3': 'Modified Allan Deviation of Si3 and DX1',
         'xlim_psd': [1E-3, None],
         'fit_line_coeff': None,
         'legend_loc_psd': (1, 0),
@@ -656,7 +597,7 @@ def _plot_kk_core(
     f_1_d: List[float],
     fs: float,
     ch: str,
-    label1: str,
+    label: str,
     nu_0: float,
     nfft_0: int,
     plot_mdev: bool = True,
@@ -671,7 +612,7 @@ def _plot_kk_core(
         f_1_d: 频率数据
         fs: 采样率
         ch: 通道名
-        label1: 图例标签
+        label: 图例标签
         nu_0: 光频率
         nfft_0: FFT点数
         plot_mdev: 是否绘制MDEV
@@ -682,7 +623,7 @@ def _plot_kk_core(
         计算结果字典
     """
     cfg = _CHANNEL_CONFIGS.get(ch, _CHANNEL_CONFIGS['CH1'])
-    leg = legend_label_override or label1
+    leg = legend_label_override or label
 
     # 时域图
     if cfg['plot_time']:
@@ -711,7 +652,7 @@ def _plot_kk_core(
 
     # PSD图
     plt.figure(fig_offset + 1)
-    plt.plot(freq_m_13, P_m_13 / nu_0 ** 2, label=leg)
+    plt.plot(freq_m_13, np.array(P_m_13) / nu_0 ** 2, label=leg)
     plt.xscale('log')
     plt.yscale('log')
     plt.title(cfg['title1'])
@@ -719,15 +660,15 @@ def _plot_kk_core(
     plt.ylabel("Power Spectral Density($\\sigma_y/\\sqrt{Hz}$)")
     xlim_low = cfg['xlim_psd'][0]
     xlim_high = cfg['xlim_psd'][1] if cfg['xlim_psd'][1] is not None else fs
-    plt.xlim([xlim_low, xlim_high])
+    # plt.xlim([xlim_low, xlim_high])
     plt.grid(which='both', linestyle='dashed')
     plt.legend(loc=cfg['legend_loc_psd'])
 
-    # 拟合线（优先使用传入系数，否则使用通道配置）
-    fc = fit_line_coeff if fit_line_coeff is not None else cfg['fit_line_coeff']
-    if fc is not None:
-        fit_line = [fc / i for i in freq_m_13]
-        plt.plot(freq_m_13, fit_line, 'r', linestyle='--')
+    # # 拟合线（优先使用传入系数，否则使用通道配置）
+    # fc = fit_line_coeff if fit_line_coeff is not None else cfg['fit_line_coeff']
+    # if fc is not None:
+    #     fit_line = [fc / i for i in freq_m_13]
+    #     plt.plot(freq_m_13, fit_line, 'r', linestyle='--')
 
     # ADEV图
     plt.figure(fig_offset + 2)
@@ -760,20 +701,20 @@ def _plot_kk_core(
 
     result = {
         'freq_psd': freq_m_13,
-        'psd': P_m_13 / nu_0 ** 2,
+        'psd': np.array(P_m_13) / nu_0 ** 2,
         'taus_m': taus_m3,
-        'adevs_m': adevs_m3 / nu_0,
-        'error_m': error_m3 / nu_0,
+        'adevs_m': np.array(adevs_m3) / nu_0,
+        'error_m': np.array(error_m3) / nu_0,
         'taus_a': taus_a3,
-        'adevs_a': adevs_a3 / nu_0,
-        'adevs_1': adevs_1 / nu_0,
+        'adevs_a': np.array(adevs_a3) / nu_0,
+        'adevs_1': np.array(adevs_1) / nu_0,
         'mdevs_1': None,
     }
     if plot_mdev:
         (taus_1_m, mdevs_1_m, errors_1_m, ns_1_m) = alt.mdev(
             f_1_d, rate=fs, data_type="freq", taus=1
         )
-        result['mdevs_1'] = mdevs_1_m / nu_0
+        result['mdevs_1'] = np.array(mdevs_1_m) / nu_0
         result['taus_1'] = taus_1_m
 
     return result
@@ -783,13 +724,15 @@ def K_K_plot(
     path: str,
     fs: float,
     CH: str = 'CH1',
-    label1: str = '123',
+    label: str = '123',
     start: int = 1,
     end: int = 10,
     nu_0: float = 429.228E12,
     nfft_0: int = 1024 * 4,
     switch1: int = 0,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    switch2: int = 0,
+    width: int = 0,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """K+K频率计数器数据绘图（单段数据）。
 
     读取数据，绘制时域 + PSD + ADEV + MDEV四图，按通道配置差异化标题/范围/拟合线。
@@ -798,7 +741,7 @@ def K_K_plot(
         path: 数据文件路径
         fs: 采样率 (Hz)
         CH: 通道名 ('CH1', 'CH1-2', 'CH2', 'CH3')
-        label1: 图例标签
+        label: 图例标签
         start: 起始数据点
         end: 结束数据点
         nu_0: 光频率 (Hz)
@@ -809,10 +752,12 @@ def K_K_plot(
         (freq_psd, psd, taus_m, adevs_m, error_m)
     """
     t, t_data, f_1 = KK_data_read_single(path, fs, start, end, channel=CH)
-    t_a, f_1_d, d_13 = move_long_drift(t, f_1, switch1)
+    t_a_m, f_1_d_m, d_13 = move_long_drift(t, f_1, switch1)
     print("Drift is: {} Hz/s.".format(d_13))
 
-    result = _plot_kk_core(t_a, f_1_d, fs, CH, label1, nu_0, nfft_0)
+    t_a, f_1_d = _filter_outliers(t_a_m, f_1_d_m, switch2, width)
+
+    result = _plot_kk_core(t_a, f_1_d, fs, CH, label, nu_0, nfft_0)
 
     # 按原代码的差异处理打印信息和返回值
     if CH == 'CH1':
@@ -834,7 +779,7 @@ def K_K_plot(
         if result.get('adevs_1') is not None:
             print(result['adevs_1'])
 
-    return (result['freq_psd'], result['psd'],
+    return t_a, f_1_d,(result['freq_psd'], result['psd'],
             result['taus_m'], result['adevs_m'], result['error_m'])
 
 

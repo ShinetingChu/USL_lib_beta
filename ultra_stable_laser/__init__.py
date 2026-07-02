@@ -9,6 +9,7 @@
 重构为结构化包，提供向后兼容的公共API。
 
 更新日志:
+  - 20260610: 添加DAQ970数据读取函数
   - 20241024: 添加控温层温度读取函数，绘制控温层温度随时间变化，PSD，adev曲线
   - 20241022: 修改adev，mdev，hdev，oadev函数输入参数，修改三角帽计算adev函数，添加fs=50Hz和100Hz在1s处取点
   - 20240901: 修改画图比例，图例，字体大小等
@@ -30,7 +31,7 @@
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
-
+import scienceplots
 
 # ────────────────────────────────────────────────────────────
 # 全局配置
@@ -89,6 +90,7 @@ from ._io import (
     keysight_six_data_read,
     sim_keysight_data_read,
     labview_data_read,
+    DAQ970_data_read,
     data_read_SR780_dbm,
     oscilloscope_data_read,
     pn_plot_to_psd,
@@ -131,6 +133,7 @@ from ._plot import (
     plot_keysight_USB_power,
     plot_keysight_six_half_USB_power,
     plot_sim_keysight_USB_power,
+    plot_DAQ970_power,
     K_K_single_plot,
     K_K_plot,
     K_K_plot_path1_path2,
@@ -148,7 +151,7 @@ __all__ = [
     # IO
     'KK_data_read', 'KK_data_read_single',
     'keysight_data_read', 'keysight_six_data_read',
-    'sim_keysight_data_read', 'labview_data_read',
+    'sim_keysight_data_read', 'labview_data_read','DAQ970_data_read',
     'data_read_SR780_dbm', 'oscilloscope_data_read',
     'pn_plot_to_psd', 'datetime_to_epoch',
     # Allan
@@ -165,7 +168,7 @@ __all__ = [
     'transfer_temp',
     # Plot
     'plot_data_labview', 'temp_read_psd_allan_2', 'plot_temp_stability',
-    'plot_pico_USB_err', 'plot_keysight_USB_power',
+    'plot_pico_USB_err', 'plot_keysight_USB_power', 'plot_DAQ970_power',
     'plot_keysight_six_half_USB_power', 'plot_sim_keysight_USB_power',
     'K_K_single_plot', 'K_K_plot', 'K_K_plot_path1_path2',
     'freq_disc_slope', 'SR780_data_concatenate',

@@ -115,13 +115,14 @@ def KK_data_read_single(
     # 列索引映射
     channel_col = {'CH1': 3, 'CH2': 4, 'CH3': 5, 'CH1-2': 6}.get(channel, 3)
 
-    # 读取数据（空格分隔，无表头）
+    # 读取数据（空格分隔，无表头），日期/时间列保持为字符串以保留前导零
     df = pd.read_csv(
         path,
         sep=r'\s+',
         header=None,
         skiprows=begin + 1,
         nrows=end - begin - 1 if end > begin + 1 else None,
+        dtype={0: str, 1: str},
         engine='python',
     )
 
@@ -214,6 +215,30 @@ def labview_data_read(path: str, fs: float) -> Tuple[List[float], List[float]]:
     t = [datetime_to_epoch(dt.to_pydatetime()) for dt in t_data]
 
     T = df.iloc[:, 1].astype(float).tolist()
+
+    return t, T
+
+def DAQ970_data_read(path: str, fs: float,channel:int) -> Tuple[List[float], List[float], List[int]]:
+    """LabView自编程序数据读取。
+
+    制表符分隔，第一列时间戳(格式: "%Y-%m-%d %H:%M:%S.%f")，第二列温度。
+    第一行为表头。
+
+    Args:
+        path: 数据文件路径（第一列时间戳，第二列温度）
+        fs: 采样率 (Hz)
+
+    Returns:
+        (t, T) 时间和温度数据
+    """
+    df = pd.read_csv(path, sep=',', header=0)
+
+    # 解析时间戳
+    time_col = df.columns[0]
+    t_data = pd.to_datetime(df.iloc[:, 0], format="%Y-%m-%d %H:%M:%S.%f")
+    t = [datetime_to_epoch(dt.to_pydatetime()) for dt in t_data]
+
+    T = df.iloc[:, channel].astype(float).tolist()
 
     return t, T
 
